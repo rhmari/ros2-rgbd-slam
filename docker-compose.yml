@@ -1,0 +1,34 @@
+services:
+  slam:
+    build: .
+    image: ros2-rgbd-slam
+    # ROS 2 (Fast DDS) sends large images through shared memory. Docker's default 64 MB
+    # /dev/shm is too small for 1-2 MB frames, so messages fell back to slow, lossy UDP.
+    shm_size: "2gb"
+    ports:
+      - "8765:8765"   # Foxglove bridge
+    volumes:
+      - ./data:/data
+      - ./results:/results
+      - ./scripts:/ws/scripts
+      - ./launch:/ws/launch
+      - ./config:/ws/config
+    environment:
+      - SEQUENCE=${SEQUENCE:-rgbd_dataset_freiburg1_xyz}
+      - SPEED=${SPEED:-0.3}
+      - FASTRTPS_DEFAULT_PROFILES_FILE=/ws/config/fastdds.xml
+    # One line on purpose: a multi-line YAML command split the launch arguments onto their own
+    # shell line, so dataset/speed were silently ignored (always fr1_xyz at x1.0, exit code 127).
+    command: ["bash", "-c", "source /opt/ros/humble/setup.bash && ros2 launch /ws/launch/tum_slam.launch.py dataset:=/data/$${SEQUENCE} speed:=$${SPEED}"]
+
+  eval:
+    build: .
+    image: ros2-rgbd-slam
+    profiles: ["eval"]
+    volumes:
+      - ./data:/data
+      - ./results:/results
+      - ./scripts:/ws/scripts
+    environment:
+      - SEQUENCE=${SEQUENCE:-rgbd_dataset_freiburg1_xyz}
+    command: bash /ws/scripts/evaluate.sh
