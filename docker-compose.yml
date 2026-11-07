@@ -16,10 +16,14 @@ services:
     environment:
       - SEQUENCE=${SEQUENCE:-rgbd_dataset_freiburg1_xyz}
       - SPEED=${SPEED:-0.3}
+      - INTRINSICS=${INTRINSICS:-fr1}
+      - DETECTION_RATE=${DETECTION_RATE:-0}
+      - ODOMETRY=${ODOMETRY:-rtabmap}
+      - RUN=${RUN:-}
       - FASTRTPS_DEFAULT_PROFILES_FILE=/ws/config/fastdds.xml
     # One line on purpose: a multi-line YAML command split the launch arguments onto their own
     # shell line, so dataset/speed were silently ignored (always fr1_xyz at x1.0, exit code 127).
-    command: ["bash", "-c", "source /opt/ros/humble/setup.bash && ros2 launch /ws/launch/tum_slam.launch.py dataset:=/data/$${SEQUENCE} speed:=$${SPEED}"]
+    command: ["bash", "-c", "source /opt/ros/humble/setup.bash && RUN=$${RUN:-$${SEQUENCE}} && mkdir -p /results/$${RUN} && echo \"Run: $${RUN}\" && ros2 launch /ws/launch/tum_slam.launch.py dataset:=/data/$${SEQUENCE} speed:=$${SPEED} intrinsics:=$${INTRINSICS} detection_rate:=$${DETECTION_RATE} odometry:=$${ODOMETRY} run:=$${RUN}"]
 
   eval:
     build: .
@@ -29,6 +33,8 @@ services:
       - ./data:/data
       - ./results:/results
       - ./scripts:/ws/scripts
+      - ./tests:/ws/tests
     environment:
       - SEQUENCE=${SEQUENCE:-rgbd_dataset_freiburg1_xyz}
+      - RUN=${RUN:-}
     command: bash /ws/scripts/evaluate.sh

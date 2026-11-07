@@ -23,8 +23,14 @@ from rclpy.node import Node
 from rosgraph_msgs.msg import Clock
 from sensor_msgs.msg import CameraInfo, Image
 
-# TUM recommends the ROS default intrinsics for the registered depth/RGB pair.
-FX, FY, CX, CY = 525.0, 525.0, 319.5, 239.5
+# "default": the ROS default intrinsics TUM recommends for the pre-registered depth/RGB pair.
+# "fr1": the calibrated Freiburg 1 RGB intrinsics + distortion; images are undistorted here
+#        (RGB bilinear, depth nearest-neighbour) and published with zero distortion.
+INTRINSICS = {
+    "default": dict(K=(525.0, 525.0, 319.5, 239.5), D=None),
+    "fr1": dict(K=(517.306408, 516.469215, 318.643040, 255.313989),
+                D=(0.262383, -0.953104, -0.005358, 0.002628, 1.163314)),
+}
 DEPTH_SCALE = 5000.0  # TUM depth PNG: 5000 units = 1 m
 
 
@@ -73,7 +79,8 @@ def make_image(arr, encoding, stamp, frame_id):
     return msg
 
 
-def make_info(stamp, frame_id, width, height):
+def make_info(stamp, frame_id, width, height, K):
+    FX, FY, CX, CY = K
     msg = CameraInfo()
     msg.header.stamp = stamp
     msg.header.frame_id = frame_id
@@ -93,6 +100,15 @@ class TumPublisher(Node):
         self.speed = float(self.declare_parameter("speed", 1.0).value)
         self.startup_delay = float(self.declare_parameter("startup_delay", 8.0).value)
         self.frame_id = self.declare_parameter("frame_id", "camera_optical_frame").value
+        self.intrinsics = self.declare_parameter("intrinsics", "default").value
+        cal = INTRINSICS[self.intrinsics]
+        self.K = cal["K"]
+        self.maps = None
+        if cal["D"] is not None:
+            fx, fy, cx, cy = self.K
+            Km = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+            self.maps = cv2.initUndistortRectifyMap(
+                Km, np.array(cal["D"]), None, Km, (640, 480), cv2.CV_32FC1)
 
         self.pub_rgb = self.create_publisher(Image, "/camera/rgb/image_raw", 10)
         self.pub_depth = self.create_publisher(Image, "/camera/depth/image_raw", 10)
@@ -103,7 +119,8 @@ class TumPublisher(Node):
         depth = read_list(os.path.join(self.dataset, "depth.txt"))
         self.pairs = associate(rgb, depth)
         self.get_logger().info(
-            f"{len(self.pairs)} RGB-D pairs from {self.dataset} (speed x{self.speed})")
+            f"{len(self.pairs)} RGB-D pairs from {self.dataset} "
+            f"(speed x{self.speed}, intrinsics={self.intrinsics})")
 
     def publish_clock(self, t):
         msg = Clock()
@@ -130,12 +147,15 @@ class TumPublisher(Node):
             bgr = cv2.imread(os.path.join(self.dataset, rgb_file), cv2.IMREAD_COLOR)
             depth_raw = cv2.imread(os.path.join(self.dataset, depth_file), cv2.IMREAD_UNCHANGED)
             depth_m = depth_raw.astype(np.float32) / DEPTH_SCALE
+            if self.maps is not None:
+                bgr = cv2.remap(bgr, *self.maps, cv2.INTER_LINEAR)
+                depth_m = cv2.remap(depth_m, *self.maps, cv2.INTER_NEAREST)
 
             stamp = to_stamp(t)
             self.publish_clock(t)
             self.pub_rgb.publish(make_image(bgr, "bgr8", stamp, self.frame_id))
             self.pub_depth.publish(make_image(depth_m, "32FC1", stamp, self.frame_id))
-            self.pub_info.publish(make_info(stamp, self.frame_id, bgr.shape[1], bgr.shape[0]))
+            self.pub_info.publish(make_info(stamp, self.frame_id, bgr.shape[1], bgr.shape[0], self.K))
 
             if k % 100 == 0:
                 self.get_logger().info(f"frame {k}/{len(self.pairs)}")

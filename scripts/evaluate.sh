@@ -4,7 +4,9 @@ set -euo pipefail
 
 SEQUENCE=${SEQUENCE:-rgbd_dataset_freiburg1_xyz}
 GT=/data/${SEQUENCE}/groundtruth.txt
-R=/results
+RUN=${RUN:-$SEQUENCE}
+R=/results/${RUN}
+echo "Evaluating run: ${RUN} (sequence ${SEQUENCE})"
 export MPLBACKEND=Agg
 
 for est in vo slam; do
